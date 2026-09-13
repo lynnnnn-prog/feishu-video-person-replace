@@ -1,0 +1,1596 @@
+{
+  "name": "Feishu Video Person Replace - AWS",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "video-person-replace-aws",
+        "options": {},
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a0624dad-a295-41b3-a316-4ab05bdba397",
+      "name": "Feishu Generate Button1",
+      "webhookId": "8b6db439-c915-489b-b802-e3ea5396a14a",
+      "notes": "Select Header Auth credential: X-Webhook-Key. Configure the same header in Feishu automation."
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst CONFIG = {\n  \"wiki_node_token\": \"YOUR_WIKI_NODE_TOKEN\",\n  \"table_id\": \"YOUR_TABLE_ID\",\n  \"worker_base_url\": \"https://YOUR_WORKER_HOST\",\n  \"google_drive_folder_id\": \"YOUR_DRIVE_FOLDER_ID\",\n  \"poll_timeout_seconds\": 6000\n};\nconst recordId = body.record_id ?? body.recordId ?? body.data?.record_id ?? body.data?.recordId;\nif (typeof recordId !== 'string' || !/^rec[A-Za-z0-9]+$/.test(recordId)) throw new Error('Missing or invalid record_id');\nfor (const [key, value] of Object.entries(CONFIG)) {\n  if (typeof value === 'string' && value.includes('YOUR_')) throw new Error('Configure ' + key + ' first');\n}\nif (!/^https:\\/\\/[^/]+/.test(CONFIG.worker_base_url)) throw new Error('Worker requires an HTTPS URL');\nreturn [{json: {...CONFIG, record_id: recordId}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "5618c95c-3908-499d-b68d-94df8e371823",
+      "name": "CONFIG1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "53b49e13-72d5-4ccc-b16f-a574343c11a9",
+      "name": "Get Feishu Tenant Token1",
+      "notes": "Custom Auth credential JSON: {\"body\":{\"app_id\":\"YOUR_APP_ID\",\"app_secret\":\"YOUR_APP_SECRET\"}}",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://open.feishu.cn/open-apis/bitable/v1/apps/{{ $('Get Wiki Bitable Token1').item.json.data.node.obj_token }}/tables/{{ $('CONFIG1').item.json.table_id }}/records/{{ $('CONFIG1').item.json.record_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Feishu Tenant Token1').item.json.tenant_access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "id": "d4624d18-f098-4b7d-bd16-3f9f59a4a178",
+      "name": "Get Feishu Record1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('CONFIG1').first().json;\nconst token = $('Get Feishu Tenant Token1').first().json.tenant_access_token;\n\nconst api = $json;\n\nif (api.code !== undefined && api.code !== 0) {\n  throw new Error(\n    `飞书读取记录失败 code=${api.code}, msg=${api.msg || ''}`\n  );\n}\n\nconst record = api.data?.record ?? api.data ?? api.record ?? api;\nconst fields = record.fields ?? {};\nconst recordId = record.record_id ?? cfg.record_id;\n\nconst asAttachments = (value) => {\n  return Array.isArray(value)\n    ? value.filter(Boolean)\n    : [];\n};\n\nconst asText = (value) => {\n  if (value === null || value === undefined) {\n    return \"\";\n  }\n\n  if (\n    typeof value === \"string\" ||\n    typeof value === \"number\"\n  ) {\n    return String(value);\n  }\n\n  if (Array.isArray(value)) {\n    return value\n      .map((item) => {\n        if (\n          typeof item === \"string\" ||\n          typeof item === \"number\"\n        ) {\n          return String(item);\n        }\n\n        return (\n          item?.text ??\n          item?.name ??\n          item?.value ??\n          \"\"\n        );\n      })\n      .filter(Boolean)\n      .join(\", \");\n  }\n\n  return (\n    value?.text ??\n    value?.name ??\n    value?.value ??\n    \"\"\n  );\n};\n\nconst sequence = asText(fields[\"序号\"]);\n\nconst templateVideos = asAttachments(\n  fields[\"模板视频\"]\n);\n\nconst referenceImages = asAttachments(\n  fields[\"人物参考图\"]\n).slice(0, 3);\n\nconst genderRaw = asText(\n  fields[\"人物性别\"]\n);\n\nconst currentStatus = asText(\n  fields[\"状态\"]\n);\n\nif (currentStatus === '生成中') return [{json: {skip_duplicate: true, record_id: recordId}}];\nlet validationError = \"\";\n\nif (!templateVideos.length) {\n  validationError = \"缺少模板视频\";\n} else if (!referenceImages.length) {\n  validationError = \"缺少人物参考图\";\n} else if (!genderRaw) {\n  validationError = \"缺少人物性别\";\n}\n\nconst templateVideo = templateVideos[0];\n\nconst normalizedGender = genderRaw\n  .trim()\n  .toLowerCase();\n\nconst isFemale =\n  normalizedGender.includes(\"female\") ||\n  normalizedGender.includes(\"woman\") ||\n  genderRaw.includes(\"女\");\n\nconst gender = isFemale\n  ? \"Female\"\n  : \"Male\";\n\n\nconst refTags = referenceImages\n  .map((_, index) => `<IMAGE_REF_${index}>`)\n  .join(\", \");\n\nconst primaryRefTag = referenceImages.length\n  ? \"<IMAGE_REF_0>\"\n  : \"the primary visual reference\";\n\nconst secondaryRefTags = referenceImages\n  .slice(1)\n  .map(\n    (_, index) =>\n      `<IMAGE_REF_${index + 1}>`\n  )\n  .join(\", \");\n\nconst refNames = referenceImages\n  .map((item, index) => {\n    const name =\n      item?.name ||\n      item?.file_token ||\n      `reference_${index}`;\n\n    return `${index}: ${name}`;\n  })\n  .join(\"; \");\n\nconst secondaryReferenceInstruction =\n  secondaryRefTags\n    ? `Use ${secondaryRefTags} only as additional references for profile angles and body proportions.`\n    : \"\";\n\nconst promptTemplate = `\nVIDEO CHARACTER APPEARANCE EDIT\n\nProduction:\n- Source: ${templateVideo?.name || \"N/A\"}\n- Character gender: ${gender}\n- Visual references: ${refNames || \"N/A\"}\n- Segment: {{SEGMENT_INDEX}} of {{SEGMENT_COUNT}}\n- Duration: {{SEGMENT_DURATION}} seconds\n\nTASK:\nUse the supplied video segment as the base footage.\nUpdate the visual appearance of the primary adult performer so that the same consistent character shown in ${refTags} appears throughout the segment.\nUse the reference images only as visual guides. Do not use them as literal video frames.\n\nREFERENCE PRIORITY:\nUse ${primaryRefTag} as the main reference for facial appearance, hairstyle, hair length, hair color, hairline, clothing, clothing colors, glasses, makeup, facial hair, and accessories.\n${secondaryReferenceInstruction}\nIf the references differ, always follow ${primaryRefTag}.\nDo not combine different outfits, hairstyles, or accessories.\n\nCHARACTER CONSISTENCY:\nKeep the character visually consistent in every frame:\n- same facial appearance and facial proportions\n- same age appearance and skin tone\n- same hairstyle, hair length, hair color, and hairline\n- same clothing, clothing colors, collar, sleeves, and visible layers\n- same glasses, makeup, facial hair, and accessories\n- same body proportions\n\nThe hairstyle and clothing shown in ${primaryRefTag} must remain unchanged.\nKeep the same character during head turns, profile views, body movement, partial occlusion, lighting changes, camera movement, and scene changes.\nAvoid appearance drift or sudden visual changes between frames.\n\nSOURCE PRESERVATION:\nPreserve the source video's:\n- pose and movement\n- hand gestures\n- performance timing\n- camera movement\n- composition and framing\n- scene and background\n- lighting and objects\n- cuts and transitions\n- on-screen text\n\nPreserve the exact crop, aspect ratio, field of view, camera distance, lens perspective, subject position, head size, and body scale.\nDo not add zooms, crop changes, reframing, stretching, or subject enlargement unless already present in the source.\nDo not turn a medium shot into a close-up.\nDo not add people, objects, text, logos, or backgrounds.\nKeep unrelated visual elements unchanged.\n\nVISUAL STABILITY:\nMaintain natural and stable eyes, mouth, teeth, jaw, ears, glasses, neck, shoulders, hands, and fingers.\nAvoid warped features, duplicated features, unstable glasses, oversized heads, distorted mouths, malformed hands, and changing body proportions.\nPrioritize character consistency, stable anatomy, original framing, and original movement.\n\nAUDIO:\nEdit the visual track only. Do not synthesize, replace, translate, or alter speech.\nThe original source audio will be preserved separately, with its original timing.\n\nCONTINUITY:\nThis segment is part of a longer video.\nAcross all segments, maintain the same facial appearance, hairstyle, clothing, colors, glasses, accessories, body proportions.\nKeep segment boundaries visually and audibly compatible.\nAvoid wardrobe changes, hairstyle changes, appearance drift, sudden zooms, crop changes, scale changes.\n\nReturn the edited video segment while preserving the structure and timing of the source footage.\n`.trim();\n\nif (promptTemplate.length > 5000) {\n  throw new Error(\n    `提示词长度为 ${promptTemplate.length} 个字符，超过 Worker 的 5000 字符限制`\n  );\n}\n\nreturn [\n  {\n    json: {\n      record_id: recordId,\n      sequence,\n      current_status: currentStatus,\n      validation_error: validationError,\n\n      table_id: cfg.table_id,\n\n      app_token:\n        $('Get Wiki Bitable Token1')\n          .first()\n          .json\n          .data\n          .node\n          .obj_token,\n\n      template_video: templateVideo,\n      reference_images: referenceImages,\n\n      target_gender: gender,\n\n      prompt_template: promptTemplate,\n\n      worker_base_url:\n        cfg.worker_base_url.replace(\n          /\\/+$/,\n          \"\"\n        ),\n\n      google_drive_folder_id:\n        cfg.google_drive_folder_id,\n\n      feishu_access_token:\n        token\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "id": "0a4500e4-0f29-431b-8b56-b3fecf0e0a42",
+      "name": "Build Task & Prompt1",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a78022ea-2c14-449d-a44f-d3b334822b41",
+              "leftValue": "={{ $json.validation_error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        0
+      ],
+      "id": "f1f5243b-fb34-41e7-bdae-f02609f3f419",
+      "name": "Has Validation Error?1"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://open.feishu.cn/open-apis/bitable/v1/apps/{{ $('Build Task & Prompt1').item.json.app_token }}/tables/{{ $('Build Task & Prompt1').item.json.table_id }}/records/{{ $('Build Task & Prompt1').item.json.record_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Feishu Tenant Token1').item.json.tenant_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"fields\": { \"状态\": \"失败\", \"错误信息\": $('Build Task & Prompt1').item.json.validation_error } } }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        950
+      ],
+      "id": "87d6d7a5-ae1a-4500-bc55-ac625ef837c9",
+      "name": "Update Feishu - Validation Failed1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://open.feishu.cn/open-apis/bitable/v1/apps/{{ $('Build Task & Prompt1').item.json.app_token }}/tables/{{ $('Build Task & Prompt1').item.json.table_id }}/records/{{ $('Build Task & Prompt1').item.json.record_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Build Task & Prompt1').item.json.feishu_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"状态\": \"生成中\"\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        420
+      ],
+      "id": "cb2d4aa8-d202-40f3-acf5-36d5d04957fb",
+      "name": "Update Feishu - Generating1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Build Task & Prompt1').item.json.worker_base_url + '/jobs' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "timeout": 120000
+        },
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        420
+      ],
+      "id": "cfead1f2-7bcc-4928-af5f-2851a578f938",
+      "name": "Submit Python Video Job1",
+      "notes": "Select Worker Header Auth credential: X-Worker-Key.",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        420
+      ],
+      "id": "504e6f1e-496b-4b70-bc52-67ecc956d57f",
+      "name": "Wait 20 Seconds1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Build Task & Prompt1').first().json.worker_base_url + '/jobs/' + $('Remember Job').first().json.job_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        420
+      ],
+      "id": "683ba473-f68b-40e1-8ebc-9bef757002e2",
+      "name": "Get Video Job Status1",
+      "notes": "Select Worker Header Auth credential: X-Worker-Key.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "55f095f2-cfe2-468b-a811-312787b27f59",
+              "leftValue": "={{ $json.is_completed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        420
+      ],
+      "id": "ff3928a1-7df6-4376-93a2-11135e0d48d1",
+      "name": "Job Completed?1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "633b56b3-71d3-4a77-80f7-a3cbd796ad93",
+              "leftValue": "={{ $json.is_failed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        950
+      ],
+      "id": "9cd2150d-0865-451f-9709-9bc2f9e03eb1",
+      "name": "Job Failed?1"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://open.feishu.cn/open-apis/bitable/v1/apps/{{ $('Build Task & Prompt1').item.json.app_token }}/tables/{{ $('Build Task & Prompt1').item.json.table_id }}/records/{{ $('Build Task & Prompt1').item.json.record_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Feishu Tenant Token1').item.json.tenant_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const videoUrl = $('Upload Result to Google Drive1').item.json.webViewLink || ('https://drive.google.com/file/d/' + $('Upload Result to Google Drive1').item.json.id + '/view'); const job = $('Classify Job Status1').item.json; return { fields: { '状态': '已完成', '输出视频': { text: videoUrl, link: videoUrl }, 'post_content': job.caption || '', 'tags': Array.isArray(job.tags) ? job.tags.map(tag => '#' + String(tag).replace(/^#/, '')).join(' ') : '', '错误信息': job.metadata_error ? '视频已完成，文案生成失败，请查看 Worker。' : '' } }; })() }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        420
+      ],
+      "id": "a2c6cb37-623c-401a-b976-1936790d6a1b",
+      "name": "Update Feishu - Completed1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://open.feishu.cn/open-apis/bitable/v1/apps/{{ $('Build Task & Prompt1').item.json.app_token }}/tables/{{ $('Build Task & Prompt1').item.json.table_id }}/records/{{ $('Build Task & Prompt1').item.json.record_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Feishu Tenant Token1').item.json.tenant_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {fields: {'状态': '失败', '错误信息': $json.public_error || '视频处理失败，请查看 n8n 执行记录。'}} }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        950
+      ],
+      "id": "2f630c5b-2203-4518-b0db-cbcd04ea36b6",
+      "name": "Update Feishu - Failed1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://open.feishu.cn/open-apis/wiki/v2/spaces/get_node",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $('CONFIG1').item.json.wiki_node_token }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Feishu Tenant Token1').item.json.tenant_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        0
+      ],
+      "id": "caeb9d31-3a11-4fa5-b676-283afa9d56a7",
+      "name": "Get Wiki Bitable Token1",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Build Task & Prompt1').first().json;\nreturn [{json: {\n  source_url: data.template_video.url,\n  reference_image_urls: data.reference_images.map(item => item.url),\n  segment_seconds: 10,\n  prompt: data.prompt_template,\n  external_id: data.record_id,\n  feishu_access_token: data.feishu_access_token,\n  generate_audio: false,\n  resolution: \"720p\", generate_metadata: true, publishing_platform: \"short_video\", caption_language: \"zh-CN\"\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        420
+      ],
+      "id": "afa5da55-e420-4dc4-9966-2fc800addc64",
+      "name": "Prepare Worker Payload1",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Build Task & Prompt1').first().json.worker_base_url + '/v1/jobs/' + $('Remember Job').first().json.job_id + '/result' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        420
+      ],
+      "id": "68330faa-3e56-4a87-9a58-054e2f1e263e",
+      "name": "Download Result Video1",
+      "notes": "Select Worker Header Auth credential: X-Worker-Key.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "name": "={{ 'person_replace_' + $('CONFIG1').first().json.record_id + '_' + $('Remember Job').first().json.job_id + '.mp4' }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('CONFIG1').first().json.google_drive_folder_id }}"
+        },
+        "options": {
+          "simplifyOutput": true
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2400,
+        420
+      ],
+      "id": "f22d2579-293c-491b-91c1-96745877b796",
+      "name": "Upload Result to Google Drive1",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Remember Job').first().json;\nconst timeout = Number($('CONFIG1').first().json.poll_timeout_seconds);\nif (!Number.isFinite(ctx.poll_started_at_ms) || !(timeout > 0)) throw new Error('Invalid polling clock');\nconst status = String($json.status ?? '').trim().toLowerCase();\nconst elapsedSeconds = Math.max(0, (Date.now() - ctx.poll_started_at_ms) / 1000);\nconst isCompleted = status === 'completed';\nconst isFailed = ['failed', 'cancelled', 'canceled', 'expired'].includes(status);\nconst isTimedOut = !isCompleted && !isFailed && elapsedSeconds >= timeout;\nreturn [{json: {...$json, elapsed_seconds: elapsedSeconds, is_completed: isCompleted,\n  is_failed: isFailed, is_timed_out: isTimedOut,\n  public_error: isTimedOut ? '等待超时；后台任务可能仍在运行，请先核查再重试。'\n    : isFailed ? '视频处理失败；请在 Worker 查看任务详情。' : ''}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        420
+      ],
+      "id": "7a8b74ae-647f-4cf8-aae0-fabfade52240",
+      "name": "Classify Job Status1",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c58d5156-1a44-49e1-872e-f10042a290c6",
+              "leftValue": "={{ $json.is_timed_out }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        950
+      ],
+      "id": "60bce529-a798-4416-8765-8541d15141df",
+      "name": "Job Timed Out?1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "55f095f2-cfe2-468b-a811-312787b27f59",
+              "leftValue": "={{ $json.skip_duplicate === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        0
+      ],
+      "id": "6ad9c733-2cfd-4d7c-bd11-9443001e1d15",
+      "name": "Already Generating?"
+    },
+    {
+      "name": "Skip Duplicate",
+      "id": "57616759-ef43-4467-b20e-67c1e284e2d3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "return [{json: {skipped: true, reason: '该记录正在生成，本次重复请求已跳过。'}}];"
+      },
+      "position": [
+        960,
+        950
+      ]
+    },
+    {
+      "name": "Remember Job",
+      "id": "d6c637a5-2602-495a-9863-7df6c5eb8b4c",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (typeof $json.job_id !== 'string' || !/^[A-Za-z0-9_-]+$/.test($json.job_id)) {\n  throw new Error('Worker accepted no usable job_id; check worker before submitting again');\n}\nreturn [{json: {job_id: $json.job_id, poll_started_at_ms: Date.now()}}];"
+      },
+      "position": [
+        960,
+        420
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Get Feishu Tenant Token1",
+      "id": "0b2d1081-f2c7-45ad-bf60-7c57cae97f71",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nif (typeof $json.tenant_access_token !== 'string' || !$json.tenant_access_token) throw new Error('Missing Feishu token');\nreturn $input.all();"
+      },
+      "position": [
+        720,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Get Wiki Bitable Token1",
+      "id": "5ae91d49-1806-4a78-95b1-fc5e94468fdb",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nif (!$json.data?.node?.obj_token) throw new Error('Missing Bitable token');\nreturn $input.all();"
+      },
+      "position": [
+        1200,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Update Feishu - Generating1",
+      "id": "0c11034f-399e-4a7c-8bce-1dc272cca261",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nreturn $input.all();"
+      },
+      "position": [
+        240,
+        420
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Update Feishu - Completed1",
+      "id": "b6936ced-47d4-451d-b947-5b4e35170302",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nreturn $input.all();"
+      },
+      "position": [
+        3120,
+        420
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Update Feishu - Failed1",
+      "id": "1d39ca2e-624d-4cae-aec0-0e43baf2a4bb",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nreturn $input.all();"
+      },
+      "position": [
+        1200,
+        950
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Update Feishu - Validation Failed1",
+      "id": "6bc8ad32-f7e6-4ca0-b165-e4ff4ccb9c8d",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nreturn $input.all();"
+      },
+      "position": [
+        1440,
+        950
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Verify Drive Upload",
+      "id": "e7d1c32c-889b-47e5-a968-f555b1011b5a",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (typeof $json.id !== 'string' || !$json.id) throw new Error('Drive returned no file ID');\nreturn $input.all();"
+      },
+      "position": [
+        2640,
+        420
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Prepare Failure Report",
+      "id": "396f666f-027a-421b-ae54-a666b629d02f",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const cfg = $('CONFIG1').first().json;\nlet jobId = '';\ntry { jobId = $('Remember Job').first().json.job_id || ''; } catch (_) {}\nreturn [{json: {record_id: cfg.record_id,\n  error_message: '流程异常；执行 ' + String($execution.id) + (jobId ? '，任务 ' + jobId : '')\n    + '。请先检查执行记录/后台任务，确认后再重试。'}}];"
+      },
+      "position": [
+        1680,
+        950
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={}",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        950
+      ],
+      "id": "7671eadf-20c0-4047-8896-f5c7a37015bf",
+      "name": "Recovery - Get Token",
+      "notes": "Custom Auth credential JSON: {\"body\":{\"app_id\":\"YOUR_APP_ID\",\"app_secret\":\"YOUR_APP_SECRET\"}}",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://open.feishu.cn/open-apis/wiki/v2/spaces/get_node",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $('CONFIG1').item.json.wiki_node_token }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Recovery - Get Token').first().json.tenant_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2160,
+        950
+      ],
+      "id": "4ef5eb85-6453-4b76-b7a9-f2d23cafe850",
+      "name": "Recovery - Get Bitable",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://open.feishu.cn/open-apis/bitable/v1/apps/{{ $('Recovery - Get Bitable').first().json.data.node.obj_token }}/tables/{{ $('CONFIG1').first().json.table_id }}/records/{{ $('CONFIG1').first().json.record_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Recovery - Get Token').first().json.tenant_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {fields: {'状态': '失败', '错误信息': $('Prepare Failure Report').first().json.error_message}} }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        1270
+      ],
+      "id": "3dfdbeeb-ca2a-4182-9255-ba5559c50ef0",
+      "name": "Recovery - Mark Failed",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Stop - Failure Recorded",
+      "id": "0d3ef1e6-62ed-48e0-b5f9-6d39f40cd68d",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "throw new Error('流程失败，已回写飞书。请先检查后台任务和本次执行，再决定是否重试。');"
+      },
+      "position": [
+        240,
+        1270
+      ]
+    },
+    {
+      "name": "Stop - Report Unavailable",
+      "id": "68c80b10-95a0-44ba-a1a1-422f04bdc449",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "throw new Error('流程失败，且无法回写飞书。请检查凭证、表格权限与网络；不要直接重复提交。');"
+      },
+      "position": [
+        480,
+        1270
+      ]
+    },
+    {
+      "name": "Check Recovery - Get Token",
+      "id": "a33a85d7-ffc2-4752-a738-9de383096ed5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nif (typeof $json.tenant_access_token !== 'string' || !$json.tenant_access_token) throw new Error('Missing Feishu token');\nreturn $input.all();"
+      },
+      "position": [
+        720,
+        1270
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Recovery - Get Bitable",
+      "id": "014c4b61-243d-471c-abff-04b03d0ee65a",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nif (!$json.data?.node?.obj_token) throw new Error('Missing Bitable token');\nreturn $input.all();"
+      },
+      "position": [
+        960,
+        1270
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Check Recovery - Mark Failed",
+      "id": "1d2f31db-9ac5-4f19-b47b-712877ecde41",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (Number($json.code) !== 0) throw new Error('Feishu API rejected the request');\nreturn $input.all();"
+      },
+      "position": [
+        1200,
+        1270
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Feishu Generate Button1": {
+      "main": [
+        [
+          {
+            "node": "CONFIG1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CONFIG1": {
+      "main": [
+        [
+          {
+            "node": "Get Feishu Tenant Token1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Feishu Tenant Token1": {
+      "main": [
+        [
+          {
+            "node": "Check Get Feishu Tenant Token1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Feishu Record1": {
+      "main": [
+        [
+          {
+            "node": "Build Task & Prompt1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Task & Prompt1": {
+      "main": [
+        [
+          {
+            "node": "Already Generating?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Validation Error?1": {
+      "main": [
+        [
+          {
+            "node": "Update Feishu - Validation Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Feishu - Generating1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Feishu - Generating1": {
+      "main": [
+        [
+          {
+            "node": "Check Update Feishu - Generating1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Python Video Job1": {
+      "main": [
+        [
+          {
+            "node": "Remember Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 20 Seconds1": {
+      "main": [
+        [
+          {
+            "node": "Get Video Job Status1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Video Job Status1": {
+      "main": [
+        [
+          {
+            "node": "Classify Job Status1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Completed?1": {
+      "main": [
+        [
+          {
+            "node": "Download Result Video1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Job Failed?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Failed?1": {
+      "main": [
+        [
+          {
+            "node": "Update Feishu - Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Job Timed Out?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Wiki Bitable Token1": {
+      "main": [
+        [
+          {
+            "node": "Check Get Wiki Bitable Token1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Worker Payload1": {
+      "main": [
+        [
+          {
+            "node": "Submit Python Video Job1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Result Video1": {
+      "main": [
+        [
+          {
+            "node": "Upload Result to Google Drive1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Result to Google Drive1": {
+      "main": [
+        [
+          {
+            "node": "Verify Drive Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Job Status1": {
+      "main": [
+        [
+          {
+            "node": "Job Completed?1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Timed Out?1": {
+      "main": [
+        [
+          {
+            "node": "Update Feishu - Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 20 Seconds1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Generating?": {
+      "main": [
+        [
+          {
+            "node": "Skip Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has Validation Error?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remember Job": {
+      "main": [
+        [
+          {
+            "node": "Wait 20 Seconds1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Get Feishu Tenant Token1": {
+      "main": [
+        [
+          {
+            "node": "Get Wiki Bitable Token1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Get Wiki Bitable Token1": {
+      "main": [
+        [
+          {
+            "node": "Get Feishu Record1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Update Feishu - Generating1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Worker Payload1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Feishu - Completed1": {
+      "main": [
+        [
+          {
+            "node": "Check Update Feishu - Completed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Update Feishu - Completed1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Feishu - Failed1": {
+      "main": [
+        [
+          {
+            "node": "Check Update Feishu - Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Update Feishu - Failed1": {
+      "main": [
+        [
+          {
+            "node": "Stop - Failure Recorded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Feishu - Validation Failed1": {
+      "main": [
+        [
+          {
+            "node": "Check Update Feishu - Validation Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Update Feishu - Validation Failed1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Drive Upload": {
+      "main": [
+        [
+          {
+            "node": "Update Feishu - Completed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failure Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Failure Report": {
+      "main": [
+        [
+          {
+            "node": "Recovery - Get Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery - Get Token": {
+      "main": [
+        [
+          {
+            "node": "Check Recovery - Get Token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Report Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery - Get Bitable": {
+      "main": [
+        [
+          {
+            "node": "Check Recovery - Get Bitable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Report Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery - Mark Failed": {
+      "main": [
+        [
+          {
+            "node": "Check Recovery - Mark Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Report Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Recovery - Get Token": {
+      "main": [
+        [
+          {
+            "node": "Recovery - Get Bitable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Report Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Recovery - Get Bitable": {
+      "main": [
+        [
+          {
+            "node": "Recovery - Mark Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Report Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Recovery - Mark Failed": {
+      "main": [
+        [
+          {
+            "node": "Stop - Failure Recorded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Report Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 7200,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": false
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}
