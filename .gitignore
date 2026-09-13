@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+data/
+logs/
+*.log
+*.mp4
+*.mov
+*.pem
+*.key
+*backup*
+private/
